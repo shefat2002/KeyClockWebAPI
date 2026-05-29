@@ -20,14 +20,14 @@ services:
       - keycloak-db
   
   keycloak-db:
-    image: postgres:18.4-alpine
+    image: postgres:latest
     container_name: keycloak-db
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
       POSTGRES_PASSWORD: keycloak_password
     volumes:
-      - keycloak_pgdata:/var/lib/postgresql/data
+      - keycloak_pgdata:/var/lib/postgresql
 
 volumes:
   keycloak_pgdata:

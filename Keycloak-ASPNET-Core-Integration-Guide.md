@@ -208,16 +208,128 @@ Web Origins:
 
 ### 3.3 Configure User Roles
 
-**Create Roles:**
+**Create Roles - Detailed Steps:**
 
-1. Navigate to: **Realm Roles** → **Create Role**
-2. Create roles: `Admin`, `User`, `Manager`
-3. Assign default roles to users as needed
+1. **Navigate to Realm Roles:**
+   - From the left sidebar menu, click on **"Realm Roles"** under the **"Realm settings"** section
+   - You should see a table with any existing roles (default roles include `uma_authorization`, `offline_access`, etc.)
 
-**Configure Client Scopes:**
+2. **Create Admin Role:**
+   - Click the **"Create Role"** button (usually top-right of the screen)
+   - In the **"Name"** field, enter: `Admin`
+   - Optionally add a **"Description"**: `Administrator with full system access`
+   - Leave **"Composite Role"** unchecked for now
+   - Click **"Save"** (bottom-right button)
 
-1. Navigate to: **Client Scopes** → **company-app-api-dedicated**
-2. Add **realm_access.roles** mapper to include roles in tokens
+3. **Create User Role:**
+   - Click **"Create Role"** again
+   - In the **"Name"** field, enter: `User`
+   - Optionally add a **"Description"**: `Standard user with basic access`
+   - Leave **"Composite Role"** unchecked
+   - Click **"Save"**
+
+4. **Create Manager Role:**
+   - Click **"Create Role"** one more time
+   - In the **"Name"** field, enter: `Manager`
+   - Optionally add a **"Description"**: `Manager with elevated permissions`
+   - Leave **"Composite Role"** unchecked
+   - Click **"Save"**
+
+5. **Verify Created Roles:**
+   - You should now see `Admin`, `User`, and `Manager` in the roles table
+   - These are the roles that will be assigned to users and included in JWT tokens
+
+**Assign Default Roles to Users:**
+
+1. **Navigate to Users:**
+   - From the left sidebar menu, click on **"Users"** under the **"Manage"** section
+
+2. **Create a Test User (optional):**
+   - Click **"Add user"** button
+   - Enter **"Username"**: `testuser`
+   - Enter **"Email"**: `testuser@example.com`
+   - Set **"Email verified"** to **ON**
+   - Click **"Create"**
+
+3. **Set User Password:**
+   - Click on the **"Credentials"** tab for the newly created user
+   - Set a password in both **"Password"** and **"Password confirmation"** fields
+   - Set **"Temporary"** to **OFF** if you want the password to be permanent
+   - Click **"Set Password"**
+
+4. **Assign Roles to User:**
+   - Click on the **"Role mapping"** tab for the user
+   - You'll see two sections: **"Assigned roles"** and **"Available roles"**
+   - In the **"Available roles"** section, search for or scroll to find `Admin`, `User`, or `Manager`
+   - Click the **"+"** (plus) button next to the role you want to assign
+   - The role will move to the **"Assigned roles"** section
+   - Repeat for multiple roles if needed
+   - Click **"Assign role"** if prompted
+
+**Configure Client Scopes - Detailed Steps:**
+
+1. **Navigate to Client Scopes:**
+   - From the left sidebar menu, click on **"Client scopes"** under the **"Realm settings"** section
+   - You'll see several built-in client scopes and your custom ones
+
+2. **Find the API Client Scope:**
+   - Look for a client scope named **"company-app-api-dedicated"** 
+   - If you created the API client earlier, this should exist
+   - Click on **"company-app-api-dedicated"** to open its configuration
+
+3. **Configure Role Mapper:**
+   - In the client scope details, click on the **"Add mapper"** button
+   - Select **"User realm role"** from the dropdown menu
+   - Fill in the mapper configuration:
+     - **Name**: `realm_access.roles`
+     - **User realm role**: `All roles`
+     - **Multivalued**: **ON** (this allows multiple roles in the token)
+     - **Add to ID token**: **ON**
+     - **Add to access token**: **ON** (critical for your API!)
+     - **Add to user info**: **OFF**
+     - **Claim name**: `roles`
+     - **Claim JSON Type**: `String`
+   - Click **"Save"**
+
+4. **Verify Mapper Configuration:**
+   - You should now see the `realm_access.roles` mapper in the mappers list
+   - This mapper ensures that user roles are included in JWT tokens
+
+**Alternative Method - Direct Client Scope Configuration:**
+
+1. **Navigate to Clients:**
+   - From the left sidebar menu, click on **"Clients"** under the **"Manage"** section
+   - Click on **"company-app-api"** (your API client)
+
+2. **Configure Client Scopes Tab:**
+   - Click on the **"Client scopes"** tab
+   - You'll see **"Default client scopes"** and **"Optional client scopes"**
+   - Click **"Add client scope"** in the **"Default client scopes"** section
+   - Select **"company-app-api-dedicated"** if available, or create a new one
+   - Click **"Add selected"**
+
+3. **Test Token Contains Roles:**
+   - Get a token using any method (password grant, authorization code, etc.)
+   - Decode the JWT at https://jwt.io/ or using: `echo $TOKEN | cut -d. -f2 | base64 -d | jq`
+   - Look for a `roles` claim in the token payload
+   - You should see: `"roles": ["Admin", "User", "Manager"]` or similar
+   - If you see `realm_access` with `roles` array, the configuration is working
+
+**Troubleshooting Role Configuration:**
+
+- **Roles not appearing in tokens**: Check that the role mapper is configured in the correct client scope
+- **Wrong role format**: Verify the **"Claim JSON Type"** is set correctly (String for single, Array/list for multiple)
+- **Empty roles array**: Ensure roles are actually assigned to users in the **"Role mapping"** tab
+- **Access denied errors**: Verify your ASP.NET Core API is configured to use the correct claim type (`roles`)
+
+**Production Best Practices:**
+
+1. **Role Hierarchy**: Consider using composite roles to create hierarchies (e.g., `Manager` includes `User` permissions)
+2. **Fine-grained Permissions**: Use client-specific roles instead of realm roles for better isolation
+3. **Default Roles**: Set up default roles that are automatically assigned to new users
+4. **Role Descriptions**: Always add clear descriptions to help administrators understand each role's purpose
+
+The role configuration ensures that when users authenticate, their roles are properly embedded in JWT tokens, allowing your ASP.NET Core API to enforce role-based authorization using policies like `[Authorize(Policy = "AdminOnly")]`.
 
 ---
 
