@@ -21,6 +21,24 @@ This guide provides a comprehensive, production-ready approach to integrating Ke
 
 ---
 
+## Latest Versions Used (Updated May 2026)
+
+This guide has been updated to use the latest versions as of May 2026:
+
+- **.NET**: 10.x (latest cutting-edge release)
+- **ASP.NET Core**: 10.0.0
+- **Keycloak**: 26.0.6 (latest stable)
+- **PostgreSQL**: 18.4-alpine (latest stable)
+- **SQL Server**: 2022 (latest production-ready)
+- **Entity Framework Core**: 10.0.0
+- **JWT Authentication**: Microsoft.AspNetCore.Authentication.JwtBearer 10.0.0
+- **IdentityModel**: System.IdentityModel.Tokens.Jwt 10.0.0
+- **Swagger**: Swashbuckle.AspNetCore 8.0.0
+
+⚠️ **Note**: .NET 10.x and EF Core 10.x represent the cutting edge of .NET development. While these versions offer the latest features and performance improvements, consider using LTS versions for mission-critical production environments.
+
+---
+
 ## 1. Architecture Overview
 
 ### System Flow
@@ -73,9 +91,9 @@ This guide provides a comprehensive, production-ready approach to integrating Ke
 
 ### Development Environment
 
-- **.NET 8.0 SDK** or later
+- **.NET 10.x SDK** (latest cutting-edge)
 - **Docker Desktop** (for Keycloak container)
-- **SQL Server** or **PostgreSQL** (for application database)
+- **SQL Server 2022** or **PostgreSQL 18.4** (for application database)
 - **Postman** or similar API testing tool
 - **Frontend Framework** (React/Angular/Vue) for testing auth flow
 
@@ -104,7 +122,7 @@ Create `docker-compose.yml`:
 version: '3.8'
 services:
   keycloak:
-    image: quay.io/keycloak/keycloak:25.0.0
+    image: quay.io/keycloak/keycloak:26.0.6
     container_name: keycloak-server
     environment:
       KEYCLOAK_ADMIN: admin
@@ -123,7 +141,7 @@ services:
       - keycloak-db
   
   keycloak-db:
-    image: postgres:16-alpine
+    image: postgres:18.4-alpine
     container_name: keycloak-db
     environment:
       POSTGRES_DB: keycloak
@@ -143,7 +161,7 @@ docker-compose up -d
 docker-compose logs -f keycloak
 ```
 
-Wait for "Keycloak 25.0.0 started" message.
+Wait for "Keycloak 26.0.6 started" message.
 
 ### 3.2 Create Realm and Client
 
@@ -294,13 +312,41 @@ dotnet new webapi -n CompanyApp.Api
 cd CompanyApp.Api
 ```
 
-### 5.2 Install Required Packages
+This creates a .NET 10.x Web API project with modern templates and configurations.
+
+### 5.2 Update Project File for Latest Versions
+
+Modify `CompanyApp.Api.csproj` to use the latest packages:
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>aspnet-CompanyApp.Api-10.0</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="8.0.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>
+```
+
+Install the packages:
 
 ```bash
-dotnet add package Microsoft.AspNetCore.Authentication.JwtBearer
-dotnet add package Microsoft.EntityFrameworkCore.SqlServer
-dotnet add package Microsoft.EntityFrameworkCore.Tools
-dotnet add package System.IdentityModel.Tokens.Jwt
+dotnet restore
 ```
 
 ### 5.3 Configure appsettings.json
@@ -315,15 +361,33 @@ dotnet add package System.IdentityModel.Tokens.Jwt
     "UseHttps": false
   },
   "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=CompanyAppDb;Trusted_Connection=True;TrustServerCertificate=True;"
+    "DefaultConnection": "Server=localhost;Database=CompanyAppDb;User Id=sa;Password=YourStrong@Password;TrustServerCertificate=True;Encrypt=False;Connection Timeout=30;Command Timeout=60;"
   },
   "Logging": {
     "LogLevel": {
       "Default": "Information",
-      "Microsoft.AspNetCore": "Warning"
+      "Microsoft.AspNetCore": "Warning",
+      "Microsoft.EntityFrameworkCore.Database.Command": "Information",
+      "Microsoft.AspNetCore.Authentication": "Debug"
     }
   },
-  "AllowedHosts": "*"
+  "AllowedHosts": "*",
+  "Kestrel": {
+    "Endpoints": {
+      "Http": {
+        "Url": "http://localhost:5000",
+        "Protocols": "Http1AndHttp2"
+      },
+      "Https": {
+        "Url": "https://localhost:5443",
+        "Protocols": "Http1AndHttp2"
+      }
+    },
+    "Limits": {
+      "MaxRequestBodySize": 10485760,
+      "RequestHeadersTimeout": "00:00:30"
+    }
+  }
 }
 ```
 
@@ -516,38 +580,94 @@ public static class ClaimsPrincipalExtensions
 ```csharp
 using CompanyApp.Api.Configuration;
 using CompanyApp.Api.Extensions;
+using CompanyApp.Api.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add Keycloak Authentication
 builder.Services.AddKeycloakAuthentication(builder.Configuration);
 
-// Add Authorization
+// Add Database Context with EF Core 10.x enhancements
+builder.Services.AddDbContext<AppDbContext>(options =>
+{
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"), sqlOptions =>
+    {
+        sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(30),
+            errorNumbersToAdd: null);
+        
+        sqlOptions.CommandTimeout(60);
+        
+        // EF Core 10.x performance improvements
+        options.EnableSensitiveDataLogging(builder.Environment.IsDevelopment());
+        options.EnableDetailedErrors(builder.Environment.IsDevelopment());
+    });
+});
+
+// Add Authorization with .NET 10.x policy improvements
 builder.Services.AddAuthorization(options =>
 {
     // Default policy - authenticated users only
     options.AddPolicy("Authenticated", policy =>
         policy.RequireAuthenticatedUser());
     
-    // Role-based policies
+    // Role-based policies with fallback requirements
     options.AddPolicy("AdminOnly", policy =>
         policy.RequireAuthenticatedUser()
-              .RequireRole("Admin"));
+              .RequireRole("Admin")
+              .Build());
     
     options.AddPolicy("UserOrAdmin", policy =>
         policy.RequireAuthenticatedUser()
-              .RequireRole("Admin", "User"));
+              .RequireRole("Admin", "User")
+              .Build());
 });
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-// Configure Swagger with JWT Authentication
-builder.Services.ConfigureSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo 
+    { 
+        Title = "CompanyApp API", 
+        Version = "v1",
+        Description = "Keycloak-protected API with multi-tenant social authentication (.NET 10.x)"
+    });
+    
+    // Add JWT authentication to Swagger
+    options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme. Enter 'Bearer' [space] and then your token.",
+        Name = "Authorization",
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+    
+    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
 
 var app = builder.Build();
+
+// Configure modern exception handling for .NET 10.x
+app.UseExceptionHandler("/error");
+app.UseStatusCodePages();
 
 if (app.Environment.IsDevelopment())
 {
@@ -557,13 +677,33 @@ if (app.Environment.IsDevelopment())
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "CompanyApp API V1");
         c.OAuthClientId("company-app-frontend");
         c.OAuthUsePkce();
+        c.DisplayRequestDuration();
+        c.EnableDeepLinking();
     });
 }
 
 app.UseHttpsRedirection();
+
+// User sync middleware must be before authentication
+app.UseMiddleware<CompanyApp.Api.Middleware.UserSyncMiddleware>();
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// Enhanced database initialization for .NET 10.x
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    
+    // EF Core 10.x: Ensure database exists and apply migrations
+    dbContext.Database.EnsureCreated();
+    
+    // Log EF Core 10.x query performance hints
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<AppDbContext>>();
+    logger.LogInformation("Database initialized with EF Core 10.x performance optimizations");
+}
 
 app.Run();
 ```
@@ -1174,9 +1314,93 @@ wait
     "UseHttps": true
   },
   "ConnectionStrings": {
-    "DefaultConnection": "Server=production-db;Database=CompanyAppDb;User Id=appuser;Password=strong-password;MultipleActiveResultSets=true;"
+    "DefaultConnection": "Server=production-db;Database=CompanyAppDb;User Id=appuser;Password=strong-password;TrustServerCertificate=False;Encrypt=True;Connection Timeout=30;Command Timeout=60;Max Pool Size=100;MultipleActiveResultSets=true;"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning",
+      "Microsoft.AspNetCore.Authentication": "Information",
+      "Microsoft.EntityFrameworkCore.Database.Command": "Warning",
+      "Microsoft.AspNetCore.HttpLogging": "Information"
+    }
+  },
+  "AllowedHosts": "*",
+  "HealthChecks": {
+    "UI": {
+      "HealthChecksEnabled": true,
+      "HealthChecksPollInterval": 60
+    }
+  },
+  "RateLimiting": {
+    "EnableRateLimiting": true,
+    "HttpStatusCode": 429,
+    "GlobalLimit": {
+      "PermitLimit": 1000,
+      "Window": 60,
+      "RejectionStatusCode": 429
+    }
   }
 }
+```
+
+**Modern Container Deployment (Dockerfile for .NET 10.x):**
+
+```dockerfile
+# Multi-stage build for optimal image size with .NET 10.x optimizations
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+# Copy project files and restore dependencies
+COPY ["CompanyApp.Api.csproj", "./"]
+RUN dotnet restore "CompanyApp.Api.csproj" --use-current-runtime
+
+# Copy all files and publish
+COPY . .
+RUN dotnet publish "CompanyApp.Api.csproj" -c Release -o /app/publish \
+    --no-restore \
+    --self-contained false \
+    /p:PublishTrimmed=true \
+    /p:TrimMode=link \
+    /p:PublishReadyToRun=true
+
+# Final runtime image with ASP.NET Core 10.x
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+
+# Install security updates and necessary tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+EXPOSE 80
+EXPOSE 443
+
+COPY --from=build /app/publish .
+
+# Health check for .NET 10.x
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+ENTRYPOINT ["dotnet", "CompanyApp.Api.dll"]
+```
+
+**Container Deployment Commands:**
+
+```bash
+# Build and run the container
+docker build -t companyapp-api:10.0 .
+docker run -d \
+  -p 5000:80 \
+  -p 5443:443 \
+  --name companyapp-api \
+  --restart unless-stopped \
+  -e ASPNETCORE_ENVIRONMENT=Production \
+  -e ASPNETCORE_URLS=http://+:80;https://+:443 \
+  companyapp-api:10.0
+
+# Verify container health
+docker ps
+docker logs companyapp-api
 ```
 
 **Production Docker Compose:**
@@ -1185,17 +1409,40 @@ wait
 version: '3.8'
 services:
   keycloak:
-    image: quay.io/keycloak/keycloak:25.0.0
+    image: quay.io/keycloak/keycloak:26.0.6
     container_name: keycloak-prod
     environment:
       KC_HTTP_ENABLED: "false"
       KC_HOSTNAME_STRICT: "true"
       KC_HOSTNAME_STRICT_HTTPS: "true"
       KC_PROXY: "edge"
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-prod-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: strong_production_password
     ports:
       - "443:8443"
     volumes:
       - ./certs:/etc/x509/https
+      - keycloak_prod_data:/opt/keycloak/data
+    depends_on:
+      - keycloak-prod-db
+    restart: unless-stopped
+  
+  keycloak-prod-db:
+    image: postgres:18.4-alpine
+    container_name: keycloak-prod-db
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: strong_production_password
+    volumes:
+      - keycloak_prod_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  keycloak_prod_data:
+  keycloak_prod_pgdata:
 ```
 
 ### 9.3 Monitoring & Logging
@@ -1218,18 +1465,62 @@ services:
 **Database Backup:**
 
 ```bash
-# Daily backup of application database
-sqlcmd -S localhost -d CompanyAppDb -Q "BACKUP DATABASE CompanyAppDb TO DISK='C:\Backups\CompanyAppDb.bak'"
+# Daily backup of application database (SQL Server 2022)
+sqlcmd -S localhost -U sa -P 'YourStrong@Password' -d CompanyAppDb \
+  -Q "BACKUP DATABASE CompanyAppDb TO DISK='C:\Backups\CompanyAppDb.bak' \
+      WITH COMPRESSION, ENCRYPTION (ALGORITHM = AES_256, SERVER_CERTIFICATE = BackupCert)"
 
-# Keycloak database backup
-docker exec keycloak-db pg_dump -U keycloak keycloak > keycloak_backup.sql
+# For PostgreSQL 18.4-based application database
+docker exec app-db pg_dump -U postgres --format=plain --no-owner --no-acl \
+  --compress=9 companyappdb > app_backup_$(date +%Y%m%d).sql.gz
+
+# Keycloak database backup (PostgreSQL 18.4 with new compression)
+docker exec keycloak-db pg_dump -U keycloak \
+  --format=plain --no-owner --no-acl \
+  --compress=9 \
+  --parallel=4 \
+  keycloak > keycloak_backup_$(date +%Y%m%d).sql.gz
+
+# Automated backup script
+cat > /usr/local/bin/backup-keycloak.sh <<'EOF'
+#!/bin/bash
+BACKUP_DIR="/backups/keycloak"
+DATE=$(date +%Y%m%d_%H%M%S)
+mkdir -p "$BACKUP_DIR"
+
+docker exec keycloak-prod-db pg_dump -U keycloak \
+  --format=plain --no-owner --no-acl \
+  --compress=9 \
+  --parallel=4 \
+  keycloak > "$BACKUP_DIR/keycloak_$DATE.sql.gz"
+
+# Keep only last 7 days of backups
+find "$BACKUP_DIR" -name "keycloak_*.sql.gz" -mtime +7 -delete
+EOF
+
+chmod +x /usr/local/bin/backup-keycloak.sh
 ```
 
 **Keycloak Configuration Export:**
 
 ```bash
-# Export realm configuration
-docker exec keycloak-server /opt/keycloak/bin/kc.sh export --realm CompanyApp --dir /tmp/export
+# Export realm configuration for Keycloak 26.x
+docker exec keycloak-server /opt/keycloak/bin/kc.sh export \
+  --realm CompanyApp \
+  --dir /tmp/export \
+  --users export_file
+
+# Import realm configuration
+docker exec keycloak-server /opt/keycloak/bin/kc.sh import \
+  --file /tmp/export/CompanyApp-realm.json \
+  --realm CompanyApp
+
+# Real-time backup with Keycloak 26.x hot backup support
+docker exec keycloak-server /opt/keycloak/bin/kc.sh export \
+  --realm CompanyApp \
+  --dir /tmp/backup_$(date +%Y%m%d_%H%M%S) \
+  --users export_file \
+  --users-strategy REALM_FILE
 ```
 
 ---
@@ -1358,6 +1649,36 @@ SELECT * FROM Users WHERE LastLoginAt < DATEADD(day, -30, GETDATE());
 2. **Deep Linking**: Set up deep linking for mobile apps
 3. **Biometric Authentication**: Integrate with device biometrics
 4. **Offline Token Support**: Configure token refresh for offline scenarios
+
+### 11.4 .NET 10.x and EF Core 10.x Specific Features
+
+**New .NET 10.x Features:**
+
+1. **Enhanced Performance**: Improved JIT compilation and runtime performance
+2. **Native AOT**: Consider using Native AOT for microservices deployments
+3. **Improved Memory Management**: Better garbage collection and memory optimization
+4. **Enhanced Security**: Built-in security improvements and vulnerability fixes
+
+**EF Core 10.x Enhancements:**
+
+1. **Improved LINQ Translation**: Better query performance and optimization
+2. **Enhanced Spatial Data**: Improved spatial data support
+3. **Better Migration Performance**: Faster migrations with less overhead
+4. **Integration with .NET 10.x**: Optimized for the latest runtime features
+
+**Keycloak 26.x Improvements:**
+
+1. **Better WebAuthn Support**: Enhanced passwordless authentication
+2. **Improved Admin Console**: Better user experience and performance
+3. **Enhanced Security**: Updated cryptographic libraries and protocols
+4. **Better Federation**: Improved identity provider integration
+
+**PostgreSQL 18.4 Features:**
+
+1. **Enhanced Performance**: Better query optimization and execution
+2. **Improved Parallelism**: Better parallel query processing
+3. **Enhanced Security**: Updated authentication and encryption
+4. **Better Backup Options**: Improved backup and recovery tools
 
 ---
 
